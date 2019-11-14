@@ -26,7 +26,7 @@
         },
         "domainUsername": {
             "type": "string",
-            "defaultValue": "adm-jingram",
+            "defaultValue": "adm-jsmith",
             "metadata": {
                 "description": "Used to join the each VM instance within the scale set to your on-prem domain. Short hand username only, do not use fully qualified usernames(EG: 'adm-jsmith', NOT adm-jsmith@contoso.com). Must have permission to join computers to your on-prem Active Directory domain."
             }
@@ -39,7 +39,7 @@
         },
         "domainToJoin": {
             "type": "string",
-            "defaultValue": "asdfnow.com",
+            "defaultValue": "contoso.com",
             "metadata": {
                 "description": "The on-prem domain which each VM instance within your scale set will be joined to."
             }
