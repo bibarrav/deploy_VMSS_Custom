@@ -1,0 +1,208 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2018-05-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "vmssName": {
+            "type": "String",
+            "defaultValue": "vmssName",
+            "minLength": 4,
+            "maxLength": 11,
+            "metadata": {
+                "description": "The name of the Virtual Machine Scale Set.  Will be used to help build dependent resource names."
+            }
+        },
+        "adminUsername": {
+            "type": "String",
+            "defaultValue": "adm-jsmith",
+            "metadata": {
+                "description": "The name of the local administrator account for each VM instance deployed as part of the scale set."
+            }
+        },
+        "adminPassword": {
+            "type": "SecureString",
+            "metadata": {
+                "description": "The password of the local administrator account for each VM instance deployed as part of the scale set."
+            }
+        },
+        "domainUsername": {
+            "type": "string",
+            "defaultValue": "adm-jingram",
+            "metadata": {
+                "description": "Used to join the each VM instance within the scale set to your on-prem domain. Short hand username only, do not use fully qualified usernames(EG: 'adm-jsmith', NOT adm-jsmith@contoso.com). Must have permission to join computers to your on-prem Active Directory domain."
+            }
+        },
+        "domainPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "The password for the domain user account which is used to join each VM instance within the scale set to your on-prem domain."
+            }
+        },
+        "domainToJoin": {
+            "type": "string",
+            "defaultValue": "asdfnow.com",
+            "metadata": {
+                "description": "The on-prem domain which each VM instance within your scale set will be joined to."
+            }
+        },
+        "imageName": {
+            "type": "string",
+            "defaultValue": "vmssBaseIMage",
+            "metadata": {
+                "description": "The name of the Azure image which will be deployed to each VM instance of this VM scale set."
+            }
+        },
+        "imagesRG": {
+            "type": "string",
+            "defaultValue": "images_VA",
+            "metadata": {
+                "description": "The resource group which contains the base line image for deployment with this VM scale set."
+            }
+        },
+        "virtualNetworkName": {
+            "type": "string",
+            "defaultValue": "asdfnow1-vnet",
+            "metadata": {
+                "description": "The target virtual network you are deploying too.  Should contain an Active Directory domain controller or provide access to on-prem active diretory domain services."
+            }
+        },
+        "virtualNetworkResourceGroup": {
+            "type": "string",
+            "defaultValue": "vmssInfra",
+            "metadata": {
+                "description": "The resource group name which contains your target virtual network object.  All your scale set VM instances will be 'plugged' into a subnet(defined below) within this VNET"
+            }
+        },
+        "virtualNetworkSubnetName": {
+            "type": "string",
+            "defaultValue": "vmssSubnet",
+            "metadata": {
+                "description": "The specific subnet name where scale set VM instances will be assigned for network access.  Must have VNET Service Endpoints enabled for Azure Storage."
+            }
+        },
+        "fileUris": {
+            "type": "string",
+            "defaultValue": "https://vmssstor.blob.core.usgovcloudapi.net/vmssmanage/configVMSS.ps1",
+            "metadata": {
+                "description": "The powershell script will configure IIS to allow https bindings on TCP port 443 using a self signed certificate. The URI is secured by VNET Service Endpoints and Subnet ACL's.  It is only accesible from a specific assigned subnet."
+            }
+        }
+    },
+    "variables": {
+        "namingInfix": "[toLower(parameters('vmssName'))]",
+        "ouPath": "",
+        "subnetRef": "[resourceId(parameters('virtualNetworkResourceGroup'), 'Microsoft.Network/virtualNetworks/subnets', parameters('virtualNetworkName'), parameters('virtualNetworkSubnetName'))]",
+        "UriFileNamePieces": "[split(parameters('fileUris'), '/')]",
+        "firstFileNameString": "[variables('UriFileNamePieces')[sub(length(variables('UriFileNamePieces')), 1)]]",
+        "firstFileNameBreakString": "[split(variables('firstFileNameString'), '?')]",
+        "firstFileName": "[variables('firstFileNameBreakString')[0]]",
+        "arguments": "[concat('-dUsername', ' ', parameters('domainUsername'), ' ', '-dPassword', ' ',parameters('domainPassword'),' ', '-dName', ' ',parameters('domainToJoin'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Compute/virtualMachineScaleSets",
+            "apiVersion": "2019-03-01",
+            "name": "[parameters('vmssName')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+            ],
+            "sku": {
+                "name": "Standard_DS3_v2",
+                "tier": "Standard",
+                "capacity": 2
+            },
+            "properties": {
+                "overprovision": true,
+                "doNotRunExtensionsOnOverprovisionedVMs": true,
+                "upgradePolicy": {
+                    "mode": "Manual"
+                },
+                "singlePlacementGroup": true,
+                "virtualMachineProfile": {
+                    "scheduledEventsProfile": {
+                        "terminateNotificationProfile": {
+                            "notBeforeTimeout": "PT10M",
+                            "enable": true
+                        }
+                    },
+                    "storageProfile": {
+                        "imageReference": {
+                            "id": "[resourceId(parameters('imagesRG'),'Microsoft.Compute/images',parameters('imageName'))]"
+                        },
+                        "osDisk": {
+                            "createOption": "fromImage",
+                            "caching": "ReadWrite"
+                        }
+                    },
+                    "priority": "Regular",
+                    "osProfile": {
+                        "computerNamePrefix": "[variables('namingInfix')]",
+                        "adminUsername": "[parameters('adminUsername')]",
+                        "adminPassword": "[parameters('adminPassword')]"
+                    },
+                    "networkProfile": {
+                        "networkInterfaceConfigurations": [
+                            {
+                                "name": "[concat(parameters('vmssName'), 'Nic')]",
+                                "properties": {
+                                    "primary": true,
+                                    "enableAcceleratedNetworking": true,
+                                    "ipConfigurations": [
+                                        {
+                                            "name": "[concat(parameters('vmssName'), 'IpConfig')]",
+                                            "properties": {
+                                                "subnet": {
+                                                    "id": "[variables('subnetRef')]"
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    "extensionProfile": {
+                        "extensions": [
+                            {
+                                "name": "configVMSS",
+                                "properties": {
+                                    "publisher": "Microsoft.Compute",
+                                    "type": "CustomScriptExtension",
+                                    "typeHandlerVersion": "1.9",
+                                    "autoUpgradeMinorVersion": true,
+                                    "settings": {
+                                        "fileUris": "[split(parameters('fileUris'), ' ')]"
+                                    },
+                                    "protectedSettings": {
+                                        "commandToExecute": "[concat ('powershell -ExecutionPolicy Unrestricted -File ', variables('firstFileName'), ' ', variables('arguments'))]"
+                                    }
+                                }
+                            },
+                            {
+                                "name": "joindomain",
+                                "properties": {
+                                    "provisionAfterExtensions": [
+                                        "configVMSS"
+                                    ],
+                                    "publisher": "Microsoft.Compute",
+                                    "type": "JsonADDomainExtension",
+                                    "typeHandlerVersion": "1.3",
+                                    "settings": {
+                                        "Name": "[parameters('domainToJoin')]",
+                                        "OUPath": "[variables('ouPath')]",
+                                        "User": "[concat(parameters('domainToJoin'), '\\', parameters('domainUsername'))]",
+                                        "Restart": "true",
+                                        "Options": 3
+                                    },
+                                    "protectedsettings": {
+                                        "Password": "[parameters('domainPassword')]"
+                                    }
+                                }
+
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    ]
+}
